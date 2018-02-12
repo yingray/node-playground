@@ -1,33 +1,45 @@
 import express from 'express'
-import fetch from 'node-fetch'
+import path from 'path'
 import _ from 'lodash'
-import elasticsearch from 'elasticsearch'
-import test from './test.json'
+import fs from 'fs'
+import mustache from 'mustache'
 
-var client = new elasticsearch.Client({
-  host: 'localhost:9200',
-  log: 'trace'
-})
+import searchArticle from './search/article'
 
 const app = express()
 
-app.get('/', function(req, res) {
-  res.send('Hello World!')
+require.extensions['.html'] = function(module, filename) {
+  module.exports = fs.readFileSync(filename, 'utf8')
+}
+const index =require('./web/index.html')
+const news = require('./web/news.html')
+
+app.get('/', (req, res) => {
+  res.send('<h1>Hello World!</h1>')
 })
 
-app.get('/demo', (req, res) => {
-  const body = []
-  _.forEach(test, (value, key) => {
-    body.push({ index: { _index: 'news', _type: 'doc', _id: key } })
-    body.push(value)
-  })
-  client
-    .bulk({
-      body: body
+app.use('/web', express.static(path.join(__dirname, 'web')))
+
+app.get('/web', function(req, res) {
+  res.sendFile(path.join(__dirname, 'web', 'index.html'))
+})
+
+app.get('/api', (req, res) => {
+  const q = req.query.q
+  searchArticle(q)
+    .then(response => {
+      const result = response.hits.hits
+      let html = index
+      _.forEach(result, r => {
+        html = html + mustache.render(news, {
+          title: r._source.stitle,
+          content: r._source.content,
+          score: parseInt(r._score * 10)
+        })
+      })
+      res.send(html)
     })
-    .then(() => {
-      res.send('OK!')
-    })
+    .catch(error => res.send('error'))
 })
 
 app.listen('3000', () => console.log('Example app listening on port 3000!'))
